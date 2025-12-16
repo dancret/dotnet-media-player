@@ -10,7 +10,7 @@ namespace MediaPlayer.Input;
 public sealed class LocalFileAudioSource : IAudioSource
 {
     private readonly Func<Track, string> _pathSelector;
-    private readonly FfmpegPcmSourceOptions _options;
+    private readonly FfmpegOptions _options;
     private readonly ILogger<LocalFileAudioSource> _logger;
 
     /// <summary>
@@ -29,10 +29,10 @@ public sealed class LocalFileAudioSource : IAudioSource
     public LocalFileAudioSource(
         ILogger<LocalFileAudioSource> logger,
         Func<Track, string> pathSelector,
-        FfmpegPcmSourceOptions? options = null)
+        FfmpegOptions? options = null)
     {
         _pathSelector = pathSelector ?? throw new ArgumentNullException(nameof(pathSelector));
-        _options = options ?? new FfmpegPcmSourceOptions();
+        _options = options ?? new FfmpegOptions();
         _logger = logger ?? throw new ArgumentNullException();
     }
 

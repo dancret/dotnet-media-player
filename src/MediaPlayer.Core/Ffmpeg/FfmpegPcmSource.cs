@@ -6,35 +6,6 @@ using Microsoft.Extensions.Logging;
 namespace MediaPlayer.Ffmpeg;
 
 /// <summary>
-/// Options for spawning ffmpeg to decode audio to raw PCM.
-/// </summary>
-/// <param name="FfmpegPath">
-/// Path or name of the ffmpeg executable. Defaults to "ffmpeg" (resolved via PATH).
-/// </param>
-/// <param name="SampleRate">
-/// PCM sample rate in Hz (default 48000).
-/// </param>
-/// <param name="Channels">
-/// Number of channels (default 2).
-/// </param>
-/// <param name="SampleFormat">
-/// Sample format string as used by ffmpeg (default "s16le").
-/// </param>
-/// <param name="HideBanner">
-/// Whether to hide the ffmpeg banner. Default true.
-/// </param>
-/// <param name="LogLevel">
-/// Log level passed to ffmpeg (default "error").
-/// </param>
-public record FfmpegPcmSourceOptions(
-    string FfmpegPath = "ffmpeg",
-    int SampleRate = 48000,
-    int Channels = 2,
-    string SampleFormat = "s16le",
-    bool HideBanner = true,
-    string LogLevel = "error");
-
-/// <summary>
 /// Internal helper to start a ffmpeg process that decodes an input (file or URL)
 /// to raw PCM written to stdout, wrapped as an <see cref="IAudioTrackReader"/>.
 /// </summary>
@@ -42,14 +13,14 @@ internal static class FfmpegPcmSource
 {
     public static IAudioTrackReader StartPcmReader(
         string inputSpecifier,
-        FfmpegPcmSourceOptions? options,
+        FfmpegOptions? options,
         ILogger logger,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(inputSpecifier))
             throw new ArgumentException("Input specifier must not be null or empty.", nameof(inputSpecifier));
 
-        options ??= new FfmpegPcmSourceOptions();
+        options ??= new FfmpegOptions();
 
         var psi = new ProcessStartInfo
         {

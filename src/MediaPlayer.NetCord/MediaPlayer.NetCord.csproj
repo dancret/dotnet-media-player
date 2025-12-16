@@ -8,6 +8,7 @@
 		<Authors>Dan Creț</Authors>
 		<Copyright>Copyright (c) 2025 Dan Creț</Copyright>
 		<Description>Discord app for the media player engine</Description>
+		<UserSecretsId>b4931150-ccb1-4f61-befa-8638178dbf19</UserSecretsId>
 	</PropertyGroup>
 
 

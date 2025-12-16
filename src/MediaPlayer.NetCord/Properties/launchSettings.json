@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "MediaPlayer.NetCord": {
+      "commandName": "Project",
+      "remoteDebugEnabled": false,
+      "environmentVariables": {
+        "DOTNET_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}

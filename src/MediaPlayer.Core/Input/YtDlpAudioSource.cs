@@ -1,22 +1,11 @@
-﻿using System.Diagnostics;
-using System.Globalization;
-using MediaPlayer.Ffmpeg;
-using MediaPlayer.Tracks;
+﻿using MediaPlayer.Tracks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Diagnostics;
+using System.Globalization;
+using System.Net;
 
 namespace MediaPlayer.Input;
-
-/// <summary>
-/// Configuration options for creating a YtDlpAudioSource.
-/// </summary>
-public record YtDlpAudioSourceOptions : FfmpegPcmSourceOptions
-{
-    /// <summary>
-    /// Path or name of the yt-dlp executable. Defaults to "yt-dlp" (resolved via PATH).
-    /// </summary>
-    public string YtDlpPath { get; set; } = "yt-dlp";
-}
 
 /// <summary>
 /// Audio source that reads yt-dlp output and pipes it into ffmpeg to decode into PCM.
@@ -25,13 +14,15 @@ public sealed class YtDlpAudioSource : IAudioSource
 {
     private readonly ILogger<YtDlpAudioSource> _logger;
     private readonly Func<Track, string> _urlSelector;
-    private readonly YtDlpAudioSourceOptions _options;
+    private readonly YtDlpOptions _ytDlpOptions;
+    private readonly FfmpegOptions _ffmpegOptions;
 
     /// <summary>
     /// Creates a new <see cref="YtDlpAudioSource"/>.
     /// </summary>
     /// <param name="logger">Logger instance.</param>
-    /// <param name="options">Options for configuring yt-dlp + ffmpeg.</param>
+    /// <param name="ytDlpOptions">Options for configuring yt-dlp.</param>
+    /// <param name="ffmpegOptions">Options for configuring ffmpeg.</param>
     /// <param name="urlSelector">
     /// Given a <see cref="Track"/>, returns the YouTube (or supported site) URL
     /// that should be passed to yt-dlp.
@@ -39,12 +30,14 @@ public sealed class YtDlpAudioSource : IAudioSource
     /// <exception cref="ArgumentNullException"></exception>
     public YtDlpAudioSource(
         ILogger<YtDlpAudioSource> logger,
-        IOptions<YtDlpAudioSourceOptions> options,
+        IOptions<YtDlpOptions> ytDlpOptions,
+        IOptions<FfmpegOptions> ffmpegOptions,
         Func<Track, string>? urlSelector = null)
     {
         _logger = logger;
         _urlSelector = urlSelector ?? (static track => track.Uri);
-        _options = options.Value;
+        _ytDlpOptions = ytDlpOptions.Value;
+        _ffmpegOptions = ffmpegOptions.Value;
     }
 
     /// <inheritdoc/>
@@ -59,7 +52,7 @@ public sealed class YtDlpAudioSource : IAudioSource
         // Start yt-dlp: download/stream bestaudio to stdout
         var ytdlpPsi = new ProcessStartInfo
         {
-            FileName = _options.YtDlpPath,
+            FileName = _ytDlpOptions.YtDlpPath,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -75,6 +68,21 @@ public sealed class YtDlpAudioSource : IAudioSource
         ytdlpPsi.ArgumentList.Add("--no-progress");   // remove/comment if you need progress bar for troubleshooting
         ytdlpPsi.ArgumentList.Add(url);
 
+        if (_ytDlpOptions.UseCookies)
+        {
+            if (!string.IsNullOrWhiteSpace(_ytDlpOptions.CookiesFromBrowser))
+            {
+                ytdlpPsi.ArgumentList.Add("--cookies-from-browser");
+                ytdlpPsi.ArgumentList.Add(_ytDlpOptions.CookiesFromBrowser);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_ytDlpOptions.CookiesFile))
+            {
+                ytdlpPsi.ArgumentList.Add("--cookies");
+                ytdlpPsi.ArgumentList.Add(_ytDlpOptions.CookiesFile);
+            }
+        }
+
         var ytdlp = new Process
         {
             StartInfo = ytdlpPsi,
@@ -84,13 +92,13 @@ public sealed class YtDlpAudioSource : IAudioSource
         if (!ytdlp.Start())
         {
             ytdlp.Dispose();
-            throw new InvalidOperationException($"Failed to start '{_options.YtDlpPath}'.");
+            throw new InvalidOperationException($"Failed to start '{_ytDlpOptions.YtDlpPath}'.");
         }
 
         // Start ffmpeg: read container from stdin, output raw PCM to stdout
         var ffmpegPsi = new ProcessStartInfo
         {
-            FileName = _options.FfmpegPath,
+            FileName = _ffmpegOptions.FfmpegPath,
             UseShellExecute = false,
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
@@ -98,13 +106,13 @@ public sealed class YtDlpAudioSource : IAudioSource
             CreateNoWindow = true
         };
 
-        if (_options.HideBanner)
+        if (_ffmpegOptions.HideBanner)
         {
             ffmpegPsi.ArgumentList.Add("-hide_banner");
         }
 
         ffmpegPsi.ArgumentList.Add("-loglevel");
-        ffmpegPsi.ArgumentList.Add(_options.LogLevel);
+        ffmpegPsi.ArgumentList.Add(_ffmpegOptions.LogLevel);
 
         // Input from stdin
         ffmpegPsi.ArgumentList.Add("-i");
@@ -113,11 +121,11 @@ public sealed class YtDlpAudioSource : IAudioSource
         // Audio-only, raw PCM s16le stereo 48k
         ffmpegPsi.ArgumentList.Add("-vn");
         ffmpegPsi.ArgumentList.Add("-f");
-        ffmpegPsi.ArgumentList.Add(_options.SampleFormat);
+        ffmpegPsi.ArgumentList.Add(_ffmpegOptions.SampleFormat);
         ffmpegPsi.ArgumentList.Add("-ac");
-        ffmpegPsi.ArgumentList.Add(_options.Channels.ToString(CultureInfo.InvariantCulture));
+        ffmpegPsi.ArgumentList.Add(_ffmpegOptions.Channels.ToString(CultureInfo.InvariantCulture));
         ffmpegPsi.ArgumentList.Add("-ar");
-        ffmpegPsi.ArgumentList.Add(_options.SampleRate.ToString(CultureInfo.InvariantCulture));
+        ffmpegPsi.ArgumentList.Add(_ffmpegOptions.SampleRate.ToString(CultureInfo.InvariantCulture));
         ffmpegPsi.ArgumentList.Add("pipe:1");
 
         var ffmpeg = new Process
@@ -134,11 +142,11 @@ public sealed class YtDlpAudioSource : IAudioSource
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to kill {YtDlpPath} process.", _options.YtDlpPath);
+                _logger.LogWarning(ex, "Failed to kill {YtDlpPath} process.", _ytDlpOptions.YtDlpPath);
             }
             ytdlp.Dispose();
             ffmpeg.Dispose();
-            throw new InvalidOperationException($"Failed to start '{_options.FfmpegPath}'.");
+            throw new InvalidOperationException($"Failed to start '{_ffmpegOptions.FfmpegPath}'.");
         }
 
         var ytdlpOut = ytdlp.StandardOutput.BaseStream;

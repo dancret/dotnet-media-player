@@ -9,31 +9,6 @@ using Microsoft.Extensions.Options;
 namespace MediaPlayer.Tracks;
 
 /// <summary>
-/// Configuration options for <see cref="YouTubeTrackResolver"/>.
-/// </summary>
-/// <remarks>
-/// <para>
-/// This record allows customization of <see cref="YouTubeTrackResolver"/> behavior, including:
-/// <list type="bullet">
-/// <item><description>Specifying the path to the <c>yt-dlp</c> executable.</description></item>
-/// <item><description>Setting a time-to-live (TTL) duration for cached results.</description></item>
-/// </list>
-/// </para>
-/// </remarks>
-public record YouTubeTrackResolverOptions
-{
-    /// <summary>
-    /// The option helps locate the <c>yt-dlp</c> binary for metadata fetching, defaulting
-    /// to a system-wide installation if none is specified.
-    /// </summary>
-    public string YtDlpPath { get; set; } = "yt-dlp";
-    /// <summary>
-    /// The option defines how long successfully resolved YouTube tracks should remain in the cache when caching is enabled.
-    /// </summary>
-    public TimeSpan CacheTtl { get; set; } = TimeSpan.Zero;
-}
-
-/// <summary>
 /// Resolves <see cref="Track"/> instances from YouTube URLs or IDs using <c>yt-dlp</c>
 /// for metadata discovery.
 /// </summary>
@@ -62,13 +37,15 @@ public sealed class YouTubeTrackResolver : ITrackResolver
     private readonly ILogger<YouTubeTrackResolver> _logger;
     private readonly ITrackRequestCache? _cache;
     private readonly SemaphoreSlim _ytDlpSemaphore = new(4, 4); // limit concurrent yt-dlp processes
-    private readonly YouTubeTrackResolverOptions _options;
+    private readonly TrackResolverOptions _trackResolverOptions;
+    private readonly YtDlpOptions _ytDlpOptions;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="YouTubeTrackResolver"/> class.
     /// </summary>
     /// <param name="logger">Logger used for diagnostic messages.</param>
-    /// <param name="options">Configuration options for resolving and caching YouTube tracks.</param>
+    /// <param name="trackResolverOptions">Configuration options for resolving and caching YouTube tracks.</param>
+    /// <param name="ytDlpOptions">Configuration options for using yt-dlp.</param>
     /// <param name="cache">
     /// Optional cache used to store resolved tracks keyed by normalized YouTube identifiers.
     /// If <see langword="null" />, no caching is performed.
@@ -78,12 +55,14 @@ public sealed class YouTubeTrackResolver : ITrackResolver
     /// </exception>
     public YouTubeTrackResolver(
         ILogger<YouTubeTrackResolver> logger,
-        IOptions<YouTubeTrackResolverOptions> options,
+        IOptions<TrackResolverOptions> trackResolverOptions,
+        IOptions<YtDlpOptions> ytDlpOptions,
         ITrackRequestCache? cache = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _cache = cache;
-        _options = options.Value;
+        _trackResolverOptions = trackResolverOptions.Value;
+        _ytDlpOptions = ytDlpOptions.Value;
     }
 
     /// <inheritdoc />
@@ -171,12 +150,12 @@ public sealed class YouTubeTrackResolver : ITrackResolver
         }
 
         // Store in cache if available, we have results and cache TTL is not zero.
-        if (_cache is not null && resolvedTracks.Count > 0 && _options.CacheTtl > TimeSpan.Zero)
+        if (_cache is not null && resolvedTracks.Count > 0 && _trackResolverOptions.CacheTtl > TimeSpan.Zero)
         {
             try
             {
                 await _cache
-                    .SetAsync(cacheKey, resolvedTracks, _options.CacheTtl, ct)
+                    .SetAsync(cacheKey, resolvedTracks, _trackResolverOptions.CacheTtl, ct)
                     .ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -388,6 +367,8 @@ public sealed class YouTubeTrackResolver : ITrackResolver
             url
         };
 
+        args = AddOptions(args);
+
         var result = await RunYtDlpAsync(args, ct).ConfigureAwait(false);
 
         if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.Stdout))
@@ -456,6 +437,8 @@ public sealed class YouTubeTrackResolver : ITrackResolver
             "--no-download",
             url
         };
+
+        args = AddOptions(args);
 
         var result = await RunYtDlpAsync(args, ct).ConfigureAwait(false);
 
@@ -552,7 +535,7 @@ public sealed class YouTubeTrackResolver : ITrackResolver
         {
             var psi = new ProcessStartInfo
             {
-                FileName = _options.YtDlpPath,
+                FileName = _ytDlpOptions.YtDlpPath,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true
@@ -568,7 +551,7 @@ public sealed class YouTubeTrackResolver : ITrackResolver
             if (!process.Start())
             {
                 throw new InvalidOperationException(
-                    $"Failed to start yt-dlp process using path '{_options.YtDlpPath}'.");
+                    $"Failed to start yt-dlp process using path '{_ytDlpOptions.YtDlpPath}'.");
             }
 
             var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
@@ -597,6 +580,25 @@ public sealed class YouTubeTrackResolver : ITrackResolver
         {
             _ytDlpSemaphore.Release();
         }
+    }
+
+    private string[] AddOptions(string[] args)
+    {
+        List<string> cookies = [];
+        if (_ytDlpOptions.UseCookies)
+        {
+            if (!string.IsNullOrWhiteSpace(_ytDlpOptions.CookiesFromBrowser))
+            {
+                cookies.AddRange(["--cookies-from-browser", _ytDlpOptions.CookiesFromBrowser]);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_ytDlpOptions.CookiesFile))
+            {
+                cookies.AddRange(["--cookies", _ytDlpOptions.CookiesFile]);
+            }
+        }
+
+        return args.Concat(cookies).ToArray();
     }
 
     [SuppressMessage("ReSharper", "InconsistentNaming", Justification = "Match json fields")]

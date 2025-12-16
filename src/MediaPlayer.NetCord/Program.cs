@@ -1,9 +1,10 @@
-﻿using MediaPlayer.Ffmpeg;
+﻿using MediaPlayer;
 using MediaPlayer.Input;
 using MediaPlayer.NetCord;
 using MediaPlayer.NetCord.Misc;
 using MediaPlayer.NetCord.Player;
 using MediaPlayer.Tracks;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -15,6 +16,10 @@ using NetCord.Hosting.Services.ApplicationCommands;
 
 var builder = Host.CreateApplicationBuilder(args);
 
+if (builder.Environment.IsDevelopment())
+{
+    builder.Configuration.AddUserSecrets<Program>();
+}
 
 builder.Logging.ClearProviders();
 
@@ -26,30 +31,31 @@ builder.Logging.AddSimpleConsole(options =>
     options.TimestampFormat = "yyyy-MM-dd HH:mm:ss.fff ";
     options.SingleLine = false;
 });
-#if !DEBUG
-builder.Logging.AddLog4Net("log4net.config");
-#endif
+if (builder.Environment.IsProduction())
+{
+    builder.Logging.AddLog4Net("log4net.config");
+}
 
 var services = builder.Services;
 
 var configurationSection = builder.Configuration;
 
-services.AddOptions<YtDlpAudioSourceOptions>()
-    .Bind(configurationSection.GetSection(nameof(YtDlpAudioSourceOptions)))
-    .Validate(o =>
-        !string.IsNullOrWhiteSpace(o.YtDlpPath),
-        $"{nameof(YtDlpAudioSourceOptions)}:{nameof(YtDlpAudioSourceOptions.YtDlpPath)} cannot be empty.")
+services.AddOptions<FfmpegOptions>()
+    .Bind(configurationSection.GetSection(nameof(FfmpegOptions)))
     .Validate(o =>
             !string.IsNullOrWhiteSpace(o.FfmpegPath),
-        $"{nameof(YtDlpAudioSourceOptions)}:{nameof(YtDlpAudioSourceOptions.FfmpegPath)} cannot be empty.")
+        $"{nameof(FfmpegOptions)}:{nameof(FfmpegOptions.FfmpegPath)} cannot be empty.")
     .ValidateOnStart();
 
-services.AddOptions<YouTubeTrackResolverOptions>()
-    .Bind(configurationSection.GetSection(nameof(YouTubeTrackResolverOptions)))
-    .Validate(o => 
-            !string.IsNullOrWhiteSpace(o.YtDlpPath), 
-        $"{nameof(YouTubeTrackResolverOptions)}:{nameof(YouTubeTrackResolverOptions.YtDlpPath)} cannot be empty.")
+services.AddOptions<YtDlpOptions>()
+    .Bind(configurationSection.GetSection(nameof(YtDlpOptions)))
+    .Validate(o =>
+        !string.IsNullOrWhiteSpace(o.YtDlpPath),
+        $"{nameof(YtDlpOptions)}:{nameof(YtDlpOptions.YtDlpPath)} cannot be empty.")
     .ValidateOnStart();
+
+services.AddOptions<TrackResolverOptions>()
+    .Bind(configurationSection.GetSection(nameof(TrackResolverOptions)));
 
 services.AddWindowsService();
 services.AddSystemd();
