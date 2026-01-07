@@ -60,10 +60,7 @@ services.AddOptions<TrackResolverOptions>()
 services.AddWindowsService();
 services.AddSystemd();
 
-services.AddEasyCaching(options =>
-{
-    options.UseInMemory("default");
-});
+CacheConfig.Configure(services, configurationSection);
 
 services
     .ConfigureHttpClientDefaults(b => b.RemoveAllLoggers())
