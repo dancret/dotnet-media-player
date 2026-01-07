@@ -26,31 +26,40 @@ public static class CacheConfig
     public static void Configure(IServiceCollection services, ConfigurationManager configuration)
     {
         var easyCachingSection = configuration.GetSection("EasyCaching");
-        if (!easyCachingSection.Exists())
+        var inMemorySection = easyCachingSection.GetSection("InMemory");
+        var redisSection = easyCachingSection.GetSection("Redis");
+        var sqliteSection = easyCachingSection.GetSection("sqlite");
+
+        if (redisSection.Exists())
         {
             services.AddEasyCaching(options =>
             {
-                options.UseInMemory("default");
+                options.UseRedis(config =>
+                {
+                    options.UseRedis(configuration, "defaultRedis");
+                    options.WithJson();
+                });
             });
-            return;
         }
-        
-        var inMemorySection = easyCachingSection.GetSection("InMemory");
-        if (inMemorySection.Exists())
+        else if (sqliteSection.Exists())
+        {
+            services.AddEasyCaching(options =>
+            {
+                options.UseSQLite(configuration, "default");
+            });
+        }
+        else if (inMemorySection.Exists())
         {
             services.AddEasyCaching(options =>
             {
                 options.UseInMemory(configuration, "default");
             });
         }
-        
-        var redisSection = easyCachingSection.GetSection("Redis");
-        if (redisSection.Exists())
+        else
         {
-            services.AddEasyCaching(option =>
+            services.AddEasyCaching(options =>
             {
-                option.UseRedis(configuration, "defaultRedis");
-                option.WithJson("json");
+                options.UseInMemory("default");
             });
         }
     }
